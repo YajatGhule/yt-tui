@@ -4,7 +4,6 @@
 Pick quality and file type with ↑/↓ + Enter, type where to save it.
 Usage: yt-tui [URL]
 """
-import curses
 import glob
 import json
 import locale
@@ -16,6 +15,11 @@ import sys
 import threading
 import time
 import unicodedata
+
+try:
+    import curses
+except ImportError:
+    sys.exit("yt-tui: curses is missing. On Windows run: python -m pip install windows-curses")
 
 locale.setlocale(locale.LC_ALL, "")
 os.environ.setdefault("ESCDELAY", "25")
@@ -118,7 +122,7 @@ def clock(sec):
 
 
 def tilde(p):
-    return "~" + p[len(HOME):] if p == HOME or p.startswith(HOME + "/") else p
+    return "~" + p[len(HOME):] if p == HOME or p.startswith(HOME + os.sep) else p
 
 
 def L(*segs, right=(), fill=None, cursor=None, rule=False):
@@ -361,7 +365,7 @@ def complete_dir(text):
         return text, []
     common = os.path.commonprefix(matches)
     if len(matches) == 1:
-        common += "/"
+        common += os.sep
     if text.startswith("~"):
         common = tilde(common)
     return (common if len(common) >= len(text) else text), matches
@@ -392,7 +396,7 @@ def text_input(scr, st, step, prompt, default="", hint="", is_path=False):
             body.append(L(("  " + hint, T.dim)) if hint else L())
         if cands:
             body.append(L())
-            names = [os.path.basename(c.rstrip("/")) + "/" for c in cands]
+            names = [os.path.basename(c.rstrip("/\\")) + os.sep for c in cands]
             line, shown = "  ", 0
             for nm in names:
                 if cells(line + nm) > inner - 8:
@@ -516,7 +520,8 @@ def probe_screen(scr, st):
     def work():
         try:
             r = subprocess.run(["yt-dlp", "-J", "--flat-playlist", "--no-playlist",
-                                "--no-warnings", st.url], capture_output=True, text=True)
+                                "--no-warnings", st.url], capture_output=True, text=True,
+                               encoding="utf-8", errors="replace")
             if r.returncode == 0:
                 result["info"] = json.loads(r.stdout)
             else:
@@ -654,7 +659,7 @@ def bounce(width, n):
 
 def download_screen(scr, st):
     proc = subprocess.Popen(build_cmd(st), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            text=True, bufsize=1)
+                            text=True, encoding="utf-8", errors="replace", bufsize=1)
     q = queue.Queue()
 
     def reader():
@@ -725,6 +730,18 @@ def download_screen(scr, st):
     return proc.returncode, files, errors or log[-3:], cancelled
 
 
+def open_path(target):
+    try:
+        if sys.platform == "win32":
+            os.startfile(target)
+        else:
+            cmd = "open" if sys.platform == "darwin" else "xdg-open"
+            subprocess.Popen([cmd, target], stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError:
+        pass
+
+
 def result_screen(scr, st, rc, files, errors, cancelled):
     ok = rc == 0 and not cancelled
     acts = (["▶  Play", "⌂  Open folder", "↻  Download another", "✕  Quit"] if ok
@@ -763,8 +780,7 @@ def result_screen(scr, st, rc, files, errors, cancelled):
             a = acts[idx]
             if "Play" in a or "Open folder" in a:
                 target = files[0] if "Play" in a else st.outdir
-                subprocess.Popen(["xdg-open", target], stdout=subprocess.DEVNULL,
-                                 stderr=subprocess.DEVNULL, start_new_session=True)
+                open_path(target)
                 continue
             return {"↻  Download another": "new", "↻  Try again": "retry",
                     "←  Change options": "back"}.get(a, "quit")

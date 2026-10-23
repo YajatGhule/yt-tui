@@ -624,3 +624,103 @@ def build_cmd(st):
             cmd += ["--embed-thumbnail", "--embed-chapters"]
     return cmd + [st.url]
 
+
+def num(s):
+    try:
+        return float(s)
+    except (TypeError, ValueError):
+        return None
+
+
+def bar(width, frac):
+    """Smooth progress bar segments using half-cell resolution."""
+    frac = max(0.0, min(1.0, frac))
+    halves = int(frac * width * 2)
+    full, half = divmod(halves, 2)
+    segs = [("━" * full, T.accent)]
+    if half:
+        segs.append(("╸", T.accent))
+    segs.append(("━" * (width - full - half), T.track))
+    return segs
+
+
+def bounce(width, n):
+    w = max(4, width // 6)
+    span = width - w
+    pos = n % (2 * span) if span else 0
+    pos = 2 * span - pos if pos > span else pos
+    return [("━" * pos, T.track), ("━" * w, T.accent), ("━" * (width - pos - w), T.track)]
+
+
+def download_screen(scr, st):
+    proc = subprocess.Popen(build_cmd(st), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                            text=True, bufsize=1)
+    q = queue.Queue()
+
+    def reader():
+        for line in proc.stdout:
+            q.put(line.rstrip("\n"))
+        q.put(None)
+    threading.Thread(target=reader, daemon=True).start()
+
+    stage, prog, item, files, errors, log = "Preparing download…", None, None, [], [], []
+    started, n, done, cancelled = time.time(), 0, False, False
+    while True:
+        try:
+            while True:
+                line = q.get_nowait()
+                if line is None:
+                    done = True
+                    break
+                if line.startswith("DL|"):
+                    p = line.split("|")
+                    vc, idx, cnt, status = p[1], p[2], p[3], p[4]
+                    got, tot = num(p[5]), num(p[6]) or num(p[7])
+                    stage = "Downloading " + ("audio" if vc == "none" else
+                                              "video" if st.kind == "video" else "media")
+                    prog = (got, tot, num(p[8]), num(p[9])) if status == "downloading" else (tot, tot, None, 0)
+                    item = (idx, cnt) if idx not in ("NA", "") else None
+                elif line.startswith("PP|"):
+                    _, name, status = line.split("|", 2)
+                    if status == "started":
+                        stage = PP_NAMES.get(name.replace("FFmpeg", ""), name) + "…"
+                        prog = None
+                elif line.startswith("FILE|"):
+                    files.append(line[5:])
+                elif line.strip():
+                    (errors if line.startswith("ERROR") else log).append(line)
+        except queue.Empty:
+            pass
+        if done:
+            proc.wait()
+            break
+
+        h, w = scr.getmaxyx()
+        inner = max(20, min(84, w)) - 6
+        bw = inner - 8
+        body = [L((SPINNER[n % len(SPINNER)] + " ", T.accent), (stage, T.bold),
+                  right=((f"item {item[0]} of {item[1]}", T.tag),) if item and item[1] != "NA" else ()),
+                L()]
+        if prog and prog[1]:
+            got, tot, speed, eta = prog
+            frac = (got or 0) / tot
+            body.append(L(*bar(bw, frac), (f" {frac * 100:5.1f}%", T.bold)))
+            info = [f"{human(got)} / {human(tot)}"]
+            if speed:
+                info.append(f"{human(speed)}/s")
+            if eta:
+                info.append(f"ETA {clock(eta)}")
+            body.append(L(("   ·   ".join(info), T.dim)))
+        else:
+            body.append(L(*bounce(bw, n)))
+            body.append(L((f"elapsed {clock(time.time() - started)}", T.dim)))
+        body.append(L())
+        for msg in (errors + log)[-3:]:
+            body.append(L(("  " + msg, T.err if msg.startswith("ERROR") else T.dim)))
+        frame(scr, st, 3, body, "esc cancel")
+        n += 1
+        if read_key(scr, 100) == "ESC":
+            proc.terminate()
+            cancelled = True
+    return proc.returncode, files, errors or log[-3:], cancelled
+

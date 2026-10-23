@@ -352,3 +352,116 @@ def menu(scr, st, step, key, prompt, options, note=None):
         elif k in ("ESC", "q", "LEFT"):
             return None
 
+
+def complete_dir(text):
+    """Tab-complete a directory path. Returns (new_text, candidates)."""
+    exp = os.path.expanduser(text)
+    matches = sorted(m for m in glob.glob(glob.escape(exp) + "*") if os.path.isdir(m))
+    if not matches:
+        return text, []
+    common = os.path.commonprefix(matches)
+    if len(matches) == 1:
+        common += "/"
+    if text.startswith("~"):
+        common = tilde(common)
+    return (common if len(common) >= len(text) else text), matches
+
+
+def text_input(scr, st, step, prompt, default="", hint="", is_path=False):
+    buf, pos, cands, error = list(default), len(default), [], ""
+    while True:
+        h, w = scr.getmaxyx()
+        inner = max(20, min(84, w)) - 6
+        text = "".join(buf)
+        field_w = inner - 4
+        # scroll so the cursor stays visible
+        start = 0
+        while cells(text[start:pos]) > field_w - 1:
+            start += 1
+        visible = text[start:]
+        while cells(visible) > field_w:
+            visible = visible[:-1]
+        body = [L((prompt, T.bold)), L(),
+                L((" ❯ ", T.field | T.bold), (visible, T.field), fill=T.field,
+                  cursor=3 + cells(text[start:pos]))]
+        if error:
+            body.append(L(("  " + error, T.err)))
+        elif is_path:
+            body.append(L(("  " + path_status(text), T.dim)))
+        else:
+            body.append(L(("  " + hint, T.dim)) if hint else L())
+        if cands:
+            body.append(L())
+            names = [os.path.basename(c.rstrip("/")) + "/" for c in cands]
+            line, shown = "  ", 0
+            for nm in names:
+                if cells(line + nm) > inner - 8:
+                    break
+                line += nm + "   "
+                shown += 1
+            body.append(L((line, T.tag),
+                          (f"+{len(names) - shown} more" if shown < len(names) else "", T.dim)))
+        foot = "⏎ confirm · tab complete · esc back" if is_path else "⏎ confirm · esc quit"
+        frame(scr, st, step, body, foot)
+        k = read_key(scr)
+        error = ""
+        if k is None or k == "RESIZE":
+            continue
+        if k != "TAB":
+            cands = []
+        if k == "ENTER":
+            if text.strip():
+                return text.strip()
+            error = "Please enter something first"
+        elif k == "ESC":
+            return None
+        elif k == "BS" and pos:
+            del buf[pos - 1]
+            pos -= 1
+        elif k == "DEL" and pos < len(buf):
+            del buf[pos]
+        elif k == "LEFT":
+            pos = max(0, pos - 1)
+        elif k == "RIGHT":
+            pos = min(len(buf), pos + 1)
+        elif k == "HOME":
+            pos = 0
+        elif k == "END":
+            pos = len(buf)
+        elif k == "KILL":
+            del buf[:pos]
+            pos = 0
+        elif k == "WORD":
+            cut = pos
+            while cut and buf[cut - 1] in " /":
+                cut -= 1
+            while cut and buf[cut - 1] not in " /":
+                cut -= 1
+            del buf[cut:pos]
+            pos = cut
+        elif k == "TAB" and is_path:
+            new, cands = complete_dir(text[:pos])
+            buf = list(new + text[pos:])
+            pos = len(new)
+            if len(cands) == 1:
+                cands = []
+        elif len(k) == 1:
+            buf.insert(pos, k)
+            pos += 1
+
+
+def path_status(text):
+    p = os.path.abspath(os.path.expanduser(text.strip() or "."))
+    probe = p
+    while not os.path.exists(probe):
+        probe = os.path.dirname(probe)
+    try:
+        free = human(shutil.disk_usage(probe).free) + " free"
+    except OSError:
+        free = ""
+    if os.path.isdir(p):
+        return f"✓ folder exists · {free}"
+    if os.path.exists(p):
+        return "✗ that's a file, not a folder"
+    return f"+ folder will be created · {free}"
+

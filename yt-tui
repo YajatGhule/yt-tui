@@ -724,3 +724,49 @@ def download_screen(scr, st):
             cancelled = True
     return proc.returncode, files, errors or log[-3:], cancelled
 
+
+def result_screen(scr, st, rc, files, errors, cancelled):
+    ok = rc == 0 and not cancelled
+    acts = (["▶  Play", "⌂  Open folder", "↻  Download another", "✕  Quit"] if ok
+            else ["↻  Try again", "←  Change options", "✕  Quit"])
+    if ok and len(files) != 1:
+        acts.remove("▶  Play")
+    idx = 0
+    while True:
+        if ok:
+            total = sum(os.path.getsize(f) for f in files if os.path.exists(f))
+            body = [L(("✓ ", T.ok), ("Download complete", T.ok),
+                      right=((f"{len(files)} file{'s' * (len(files) != 1)} · {human(total)}", T.dim),)),
+                    L()]
+            for f in files[:4]:
+                body.append(L(("  " + os.path.basename(f), 0)))
+            if len(files) > 4:
+                body.append(L((f"  … and {len(files) - 4} more", T.dim)))
+            body.append(L(("  in " + tilde(st.outdir), T.dim)))
+        else:
+            title = "Download cancelled" if cancelled else "Download failed"
+            body = [L(("✗ ", T.err), (title, T.err)), L()]
+            for e in errors[-4:]:
+                body.append(L(("  " + e.replace("ERROR: ", ""), T.dim)))
+        body.append(L())
+        for n, a in enumerate(acts):
+            body.append(L((" ❯ " + a, T.sel), fill=T.sel) if n == idx else L(("   " + a, 0)))
+        frame(scr, st, 4 if ok else 3, body, "↑↓ move · ⏎ select · q quit")
+        k = read_key(scr)
+        if k in ("UP", "k"):
+            idx = (idx - 1) % len(acts)
+        elif k in ("DOWN", "j"):
+            idx = (idx + 1) % len(acts)
+        elif k in ("q", "ESC"):
+            return "quit"
+        elif k == "ENTER":
+            a = acts[idx]
+            if "Play" in a or "Open folder" in a:
+                target = files[0] if "Play" in a else st.outdir
+                subprocess.Popen(["xdg-open", target], stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL, start_new_session=True)
+                continue
+            return {"↻  Download another": "new", "↻  Try again": "retry",
+                    "←  Change options": "back"}.get(a, "quit")
+
+

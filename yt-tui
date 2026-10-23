@@ -770,3 +770,100 @@ def result_screen(scr, st, rc, files, errors, cancelled):
                     "←  Change options": "back"}.get(a, "quit")
 
 
+# ── flow ────────────────────────────────────────────────────────────────────
+def app(scr, url):
+    init_theme()
+    st = State(url)
+    step = "probe" if url else "url"
+    while True:
+        if step == "url":
+            st.qlabel, st.ftype, st.outdir, st.info = "", None, None, None
+            u = text_input(scr, st, None, "Paste a video or playlist URL", st.url or "",
+                           hint="YouTube, playlists, and anything else yt-dlp supports")
+            if u is None:
+                return
+            st.url, step = u, "probe"
+
+        elif step == "probe":
+            step = "quality" if probe_screen(scr, st) else "url"
+
+        elif step == "quality":
+            st.qlabel, st.ftype = "", None
+            opts = quality_options(st)
+            note = ((f"⚠ Couldn't read formats: {st.error}", T.err) if st.error else
+                    ("Qualities are picked per video; each uses the best up to that height", T.dim)
+                    if st.playlist else None)
+            i = menu(scr, st, 0, "quality", "Choose quality", [o[1] for o in opts], note)
+            if i is None:
+                step = "url"
+                continue
+            st.kind, st.height, st.qlabel = opts[i][0]
+            st.size = None if st.kind == "audio" else (
+                st.rows[0][2] if st.height is None else
+                next((r[2] for r in st.rows if r[0] == st.height), None))
+            if st.kind == "audio" and st.audio:
+                st.size = st.audio[0]
+            step = "format"
+
+        elif step == "format":
+            st.ftype = None
+            types = AUDIO_TYPES if st.kind == "audio" else VIDEO_TYPES
+            i = menu(scr, st, 1, "fmt-" + st.kind, "Choose file type",
+                     [(t, "", d) for t, d in types])
+            if i is None:
+                step = "quality"
+                continue
+            st.ftype, st.bitrate = types[i][0], None
+            step = "bitrate" if st.kind == "audio" and st.ftype in LOSSY else "path"
+
+        elif step == "bitrate":
+            i = menu(scr, st, 1, "bitrate", f"Choose {st.ftype} bitrate",
+                     [(b[0], "", b[2]) for b in BITRATES])
+            if i is None:
+                step = "format"
+                continue
+            st.bitrate = BITRATES[i][1]
+            dur = (st.info or {}).get("duration")
+            if dur and st.bitrate != "0":
+                st.size = dur * int(st.bitrate[:-1]) * 125
+            step = "path"
+
+        elif step == "path":
+            st.outdir = None
+            default = st.picked.get("path") or ("~/Music" if st.kind == "audio" else "~/Videos")
+            p = text_input(scr, st, 2, "Where should it be saved?", default, is_path=True)
+            if p is None:
+                step = "bitrate" if st.kind == "audio" and st.ftype in LOSSY else "format"
+                continue
+            full = os.path.abspath(os.path.expanduser(p))
+            st.picked["path"] = p
+            if os.path.exists(full) and not os.path.isdir(full):
+                continue
+            st.outdir = full
+            step = "confirm"
+
+        elif step == "confirm":
+            step = "download" if confirm_screen(scr, st) else "path"
+
+        elif step == "download":
+            os.makedirs(st.outdir, exist_ok=True)
+            rc, files, errors, cancelled = download_screen(scr, st)
+            act = result_screen(scr, st, rc, files, errors, cancelled)
+            if act == "quit":
+                return
+            step = {"new": "url", "retry": "download", "back": "quality"}[act]
+            if act == "new":
+                st.url = ""
+
+
+def main():
+    if not shutil.which("yt-dlp"):
+        sys.exit("yt-tui: yt-dlp not found in PATH")
+    try:
+        curses.wrapper(app, sys.argv[1] if len(sys.argv) > 1 else "")
+    except KeyboardInterrupt:
+        pass
+
+
+if __name__ == "__main__":
+    main()

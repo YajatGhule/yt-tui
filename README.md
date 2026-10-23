@@ -14,14 +14,32 @@ Pick quality and file type with the arrow keys and Enter, then type where to sav
 
 ## Requirements
 
-- Python 3 (standard library only)
+- Python 3 (standard library only, plus `windows-curses` on Windows)
 - `yt-dlp` and `ffmpeg` on your PATH
 
 ## Install
 
+### Linux / macOS
+
 ```sh
-install -Dm755 yt-tui ~/.local/bin/yt-tui
+curl -fsSL https://raw.githubusercontent.com/YajatGhule/yt-tui/main/install.sh | sh
 ```
+
+Or from a clone: `./install.sh`. It installs to `~/.local/bin` (set `PREFIX` to change it)
+and tells you how to get `yt-dlp` and `ffmpeg` if they are missing.
+
+### Windows
+
+In PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/YajatGhule/yt-tui/main/install.ps1 | iex
+```
+
+Or from a clone: `powershell -ExecutionPolicy Bypass -File install.ps1`.
+It installs `windows-curses`, gets `yt-dlp` and `ffmpeg` through winget if needed,
+puts yt-tui in `%LOCALAPPDATA%\Programs\yt-tui` and adds it to your PATH.
+Use Windows Terminal for the full colour theme.
 
 ## Usage
 

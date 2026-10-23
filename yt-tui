@@ -465,3 +465,82 @@ def path_status(text):
         return "✗ that's a file, not a folder"
     return f"+ folder will be created · {free}"
 
+
+def summarize(info):
+    """Quality rows [(height, fps, size, codecs)] and best-audio summary."""
+    fmts = info.get("formats") or []
+    dur = info.get("duration") or 0
+
+    def size(f):
+        if not f:
+            return 0
+        return f.get("filesize") or f.get("filesize_approx") or \
+            ((f.get("tbr") or 0) * dur * 125)
+
+    def codec(c):
+        c = (c or "").split(".")[0].lower()
+        return {"avc1": "h264", "avc3": "h264", "vp09": "vp9", "av01": "av1",
+                "hev1": "h265", "hvc1": "h265", "mp4a": "aac"}.get(c, c)
+
+    audio = [f for f in fmts if f.get("vcodec") == "none" and f.get("acodec") not in (None, "none")]
+    best_a = max(audio, key=lambda f: f.get("abr") or f.get("tbr") or 0, default=None)
+    by_h = {}
+    for f in fmts:
+        hgt = f.get("height")
+        if not hgt or f.get("vcodec") == "none":
+            continue
+        by_h.setdefault(hgt, []).append(f)
+    rows = []
+    for hgt in sorted(by_h, reverse=True):
+        group = by_h[hgt]
+        top = max(group, key=lambda f: f.get("tbr") or 0)
+        sz = size(top) + (size(best_a) if top.get("acodec") in (None, "none") else 0)
+        fps = max(int(f.get("fps") or 0) for f in group)
+        codecs = []
+        for f in sorted(group, key=lambda f: -(f.get("tbr") or 0)):
+            c = codec(f.get("vcodec"))
+            if c and c not in codecs and c != "none":
+                codecs.append(c)
+        hdr = any((f.get("dynamic_range") or "SDR") != "SDR" for f in group)
+        rows.append((hgt, fps, sz, codecs, hdr))
+    a = None
+    if best_a:
+        a = (size(best_a), codec(best_a.get("acodec")), int(best_a.get("abr") or 0))
+    return rows, a
+
+
+def probe_screen(scr, st):
+    st.info, st.error = None, None
+    result = {}
+
+    def work():
+        try:
+            r = subprocess.run(["yt-dlp", "-J", "--flat-playlist", "--no-playlist",
+                                "--no-warnings", st.url], capture_output=True, text=True)
+            if r.returncode == 0:
+                result["info"] = json.loads(r.stdout)
+            else:
+                lines = r.stderr.strip().splitlines() or ["unknown error"]
+                result["error"] = lines[-1].replace("ERROR: ", "")
+        except Exception as e:
+            result["error"] = str(e)
+    t = threading.Thread(target=work, daemon=True)
+    t.start()
+    n = 0
+    while t.is_alive():
+        frame(scr, st, None, [L((SPINNER[n % len(SPINNER)] + " ", T.accent),
+                                ("Fetching video info…", T.bold)),
+                              L(("  " + trunc(st.url, 70), T.dim))], "esc cancel")
+        n += 1
+        if read_key(scr, 80) == "ESC":
+            return False
+    st.info, st.error = result.get("info"), result.get("error")
+    if st.info and not st.playlist:
+        st.rows, st.audio = summarize(st.info)
+    else:
+        st.rows, st.audio = [], None
+    if not st.rows:
+        st.rows = [(hgt, 0, 0, [], False) for hgt in FALLBACK_HEIGHTS]
+    return True
+
+

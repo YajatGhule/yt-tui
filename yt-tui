@@ -164,3 +164,45 @@ def read_key(scr, timeout=-1):
     return k if k.isprintable() else None
 
 
+# ── app state ───────────────────────────────────────────────────────────────
+class State:
+    def __init__(self, url):
+        self.url = url
+        self.info = None          # probe result
+        self.error = None
+        self.rows = []            # quality rows
+        self.audio = None         # best audio format summary
+        self.kind = "video"
+        self.height = None
+        self.qlabel = ""
+        self.size = None
+        self.ftype = None
+        self.bitrate = None
+        self.outdir = None
+        self.picked = {}          # remembered cursor per screen
+        self.version = ""
+        threading.Thread(target=self._version, daemon=True).start()
+
+    def _version(self):
+        try:
+            self.version = subprocess.run(["yt-dlp", "--version"], capture_output=True,
+                                          text=True, timeout=10).stdout.strip()
+        except Exception:
+            pass
+
+    @property
+    def playlist(self):
+        return bool(self.info) and self.info.get("_type") == "playlist"
+
+    def crumbs(self):
+        """Breadcrumb labels: chosen value for finished steps."""
+        out = [self.qlabel or STEPS[0]]
+        fmt = self.ftype or STEPS[1]
+        if self.ftype and self.bitrate:
+            fmt += " " + dict((b[1], b[0]) for b in BITRATES)[self.bitrate].replace(" kbps", "k")
+        out.append(fmt)
+        out.append(tilde(self.outdir) if self.outdir else STEPS[2])
+        out.append(STEPS[3])
+        return out
+
+

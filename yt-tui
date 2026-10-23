@@ -544,3 +544,83 @@ def probe_screen(scr, st):
     return True
 
 
+def quality_options(st):
+    def name(hgt):
+        return ("8K" if hgt >= 4320 else "4K" if hgt >= 2160 else "QHD" if hgt >= 1440
+                else "Full HD" if hgt >= 1080 else "HD" if hgt >= 720 else "SD")
+
+    def detail(sz, codecs, hdr):
+        bits = [f"≈ {human(sz)}"] if sz else []
+        if codecs:
+            bits.append("/".join(codecs[:3]))
+        if hdr:
+            bits.append("HDR")
+        return " · ".join(bits)
+
+    opts = []
+    top = st.rows[0]
+    opts.append((("video", None, "Best"), ("Best available", "auto", detail(top[2], top[3][:1], top[4]))))
+    for hgt, fps, sz, codecs, hdr in st.rows:
+        label = f"{hgt}p{fps if fps > 30 else ''}"
+        opts.append((("video", hgt, label), (label, name(hgt), detail(sz, codecs, hdr))))
+    a = st.audio
+    adetail = " · ".join(x for x in [f"≈ {human(a[0])}" if a and a[0] else "",
+                                     a[1] if a else "", f"{a[2]}k" if a and a[2] else ""] if x)
+    opts.append((("audio", None, "Audio"), ("Audio only", "♪", adetail)))
+    return opts
+
+
+def confirm_screen(scr, st):
+    rows = [("Quality", st.qlabel), ("Format", st.ftype + (
+        f" · {dict((b[1], b[0]) for b in BITRATES)[st.bitrate]}"
+        if st.bitrate else "")),
+        ("Save to", tilde(st.outdir))]
+    if st.size:
+        rows.append(("Size", f"≈ {human(st.size)}"))
+    idx = 0
+    acts = ["⬇  Start download", "←  Change something"]
+    while True:
+        body = [L(("Ready to download", T.bold)), L()]
+        for k, v in rows:
+            body.append(L((f"  {k:<9}", T.dim), (v, 0)))
+        body.append(L())
+        for n, a in enumerate(acts):
+            body.append(L((" ❯ " + a, T.sel), fill=T.sel) if n == idx else L(("   " + a, 0)))
+        frame(scr, st, 3, body, "↑↓ move · ⏎ select · esc back")
+        k = read_key(scr)
+        if k in ("UP", "DOWN", "k", "j", "TAB"):
+            idx ^= 1
+        elif k == "ENTER":
+            return idx == 0
+        elif k in ("ESC", "q", "LEFT"):
+            return False
+
+
+def build_cmd(st):
+    outtmpl = ("%(playlist_title)s/%(playlist_index)03d - %(title)s.%(ext)s" if st.playlist
+               else "%(title)s [%(id)s].%(ext)s")
+    cmd = ["yt-dlp", "-P", st.outdir, "-o", outtmpl, "--no-playlist", "--embed-metadata",
+           "--newline", "--progress", "--no-warnings",
+           "--progress-template",
+           "download:DL|%(info.vcodec)s|%(info.playlist_index)s|%(info.n_entries)s|"
+           "%(progress.status)s|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|"
+           "%(progress.total_bytes_estimate)s|%(progress.speed)s|%(progress.eta)s",
+           "--progress-template", "postprocess:PP|%(progress.postprocessor)s|%(progress.status)s",
+           "--print", "after_move:FILE|%(filepath)s"]
+    if st.kind == "audio":
+        cmd += ["-f", "ba/b", "-x", "--audio-format", st.ftype, "--audio-quality", st.bitrate or "0"]
+        if st.ftype != "wav":
+            cmd += ["--embed-thumbnail"]
+    else:
+        sort = [f"res:{st.height}"] if st.height else []
+        if st.ftype == "mp4":
+            sort += ["vcodec:h264", "ext:mp4:m4a"]
+        elif st.ftype == "webm":
+            sort += ["ext:webm:webm"]
+        cmd += ["-f", "bv*+ba/b", "--merge-output-format", st.ftype, "--remux-video", st.ftype]
+        if sort:
+            cmd += ["-S", ",".join(sort)]
+        if st.ftype in ("mp4", "mkv"):
+            cmd += ["--embed-thumbnail", "--embed-chapters"]
+    return cmd + [st.url]
+

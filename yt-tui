@@ -312,3 +312,43 @@ def body_room(scr, st, step, extra):
     return max(3, h - len(header(st, step)) - 4 - extra)
 
 
+# ── screens ─────────────────────────────────────────────────────────────────
+def menu(scr, st, step, key, prompt, options, note=None):
+    """options: list of (label, tag, detail). Returns index or None for back."""
+    idx = min(st.picked.get(key, 0), len(options) - 1)
+    lw = max(cells(o[0]) for o in options)
+    tw = max(cells(o[1]) for o in options)
+    while True:
+        extra = 1 + (1 if note else 0)
+        view = body_room(scr, st, step, extra + 2)
+        top = min(max(0, idx - view + 1), max(0, len(options) - view))
+        top = min(top, idx)
+        body = [L((prompt, T.bold))]
+        if note:
+            body.append(L(note))
+        body.append(L(("  ↑ more", T.dim)) if top else L())
+        for n in range(top, min(len(options), top + view)):
+            label, tag, detail = options[n]
+            text = label + " " * (lw - cells(label) + 2) + tag + " " * (tw - cells(tag))
+            if n == idx:
+                body.append(L((" ❯ " + text, T.sel), right=((detail + " ", T.sel),), fill=T.sel))
+            else:
+                body.append(L(("   " + label + " " * (lw - cells(label) + 2), 0),
+                              (tag, T.tag), right=((detail + " ", T.dim),)))
+        body.append(L(("  ↓ more", T.dim)) if top + view < len(options) else L())
+        frame(scr, st, step, body, "↑↓ move · ⏎ select · esc back")
+        k = read_key(scr)
+        if k in ("UP", "k"):
+            idx = (idx - 1) % len(options)
+        elif k in ("DOWN", "j"):
+            idx = (idx + 1) % len(options)
+        elif k in ("HOME", "PGUP"):
+            idx = 0
+        elif k in ("END", "PGDN"):
+            idx = len(options) - 1
+        elif k == "ENTER":
+            st.picked[key] = idx
+            return idx
+        elif k in ("ESC", "q", "LEFT"):
+            return None
+

@@ -44,3 +44,84 @@ PP_NAMES = {"Merger": "Merging video + audio", "ExtractAudio": "Converting audio
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
 
+# ── theme ───────────────────────────────────────────────────────────────────
+class T:
+    accent = tag = dim = sel = ok = err = border = field = track = bold = 0
+
+
+def init_theme():
+    T.bold = curses.A_BOLD
+    try:
+        curses.start_color()
+        curses.use_default_colors()
+        rich = curses.COLORS >= 256
+
+        def pair(n, fg, bg=-1):
+            curses.init_pair(n, fg, bg)
+            return curses.color_pair(n)
+        C = curses
+        T.accent = pair(1, 203 if rich else C.COLOR_RED) | C.A_BOLD
+        T.sel = pair(2, 231 if rich else C.COLOR_WHITE, 161 if rich else C.COLOR_RED) | C.A_BOLD
+        T.dim = pair(3, 245) if rich else C.A_DIM
+        T.ok = pair(4, 114 if rich else C.COLOR_GREEN) | C.A_BOLD
+        T.err = pair(5, 210 if rich else C.COLOR_RED) | C.A_BOLD
+        T.tag = pair(6, 117 if rich else C.COLOR_CYAN)
+        T.border = pair(7, 239) if rich else C.A_DIM
+        T.field = pair(8, 255 if rich else C.COLOR_WHITE, 237 if rich else C.COLOR_BLACK)
+        T.track = pair(9, 237) if rich else C.A_DIM
+    except curses.error:
+        T.accent, T.sel, T.dim = curses.A_BOLD, curses.A_REVERSE, curses.A_DIM
+        T.ok = T.err = T.tag = curses.A_BOLD
+        T.border = T.track = curses.A_DIM
+        T.field = curses.A_UNDERLINE
+
+
+# ── text helpers ────────────────────────────────────────────────────────────
+def cells(s):
+    return sum(0 if unicodedata.combining(c) else
+               2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in s)
+
+
+def trunc(s, n):
+    if n <= 0:
+        return ""
+    if cells(s) <= n:
+        return s
+    out, w = "", 0
+    for c in s:
+        if w + cells(c) > n - 1:
+            break
+        out, w = out + c, w + cells(c)
+    return out + "…"
+
+
+def put(scr, y, x, s, attr=0):
+    try:
+        scr.addstr(y, x, s, attr)
+    except curses.error:
+        pass
+
+
+def human(n):
+    if not n:
+        return "?"
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.0f} {unit}" if unit in ("B", "KB") else f"{n:.1f} {unit}"
+        n /= 1024
+
+
+def clock(sec):
+    sec = int(sec or 0)
+    h, rem = divmod(sec, 3600)
+    return f"{h}:{rem // 60:02d}:{rem % 60:02d}" if h else f"{rem // 60}:{rem % 60:02d}"
+
+
+def tilde(p):
+    return "~" + p[len(HOME):] if p == HOME or p.startswith(HOME + "/") else p
+
+
+def L(*segs, right=(), fill=None, cursor=None, rule=False):
+    """One line in the card: left segments, right-aligned segments, row fill."""
+    return {"left": segs, "right": right, "fill": fill, "cursor": cursor, "rule": rule}
+

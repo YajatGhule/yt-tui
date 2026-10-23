@@ -206,3 +206,109 @@ class State:
         return out
 
 
+# ── drawing ─────────────────────────────────────────────────────────────────
+def header(st, step):
+    lines = [L()]
+    if st.info:
+        i = st.info
+        lines.append(L((i.get("title") or st.url, T.bold)))
+        meta = []
+        if st.playlist:
+            n = i.get("playlist_count") or len(i.get("entries") or [])
+            meta.append(f"Playlist · {n} videos")
+        if i.get("uploader") or i.get("channel"):
+            meta.append(i.get("uploader") or i.get("channel"))
+        if i.get("duration"):
+            meta.append(clock(i["duration"]))
+        if i.get("view_count"):
+            v = i["view_count"]
+            meta.append((f"{v / 1e9:.1f}B" if v >= 1e9 else f"{v / 1e6:.1f}M" if v >= 1e6
+                         else f"{v / 1e3:.0f}K" if v >= 1e3 else str(v)) + " views")
+        lines.append(L((" · ".join(meta), T.dim)))
+    else:
+        lines.append(L(("Download video & audio from YouTube and 1000+ sites", T.dim)))
+    if step is not None:
+        lines.append(L())
+        segs = []
+        for n, label in enumerate(st.crumbs()):
+            if n:
+                segs.append((" ── ", T.border))
+            if n < step:
+                segs.append(("✓ " + label, T.ok))
+            elif n == step:
+                segs.append(("● " + label, T.accent))
+            else:
+                segs.append(("○ " + label, T.dim))
+        lines.append(L(*segs))
+    lines.append(L(rule=True))
+    lines.append(L())
+    return lines
+
+
+def frame(scr, st, step, body, footer):
+    scr.erase()
+    h, w = scr.getmaxyx()
+    W = max(20, min(84, w))
+    inner = W - 6
+    lines = header(st, step) + body + [L()]
+    H = min(len(lines) + 2, h)
+    y0 = 1 if h >= H + 2 else 0
+    x0 = max(0, (w - W) // 2)
+
+    title = " ▶ yt-tui "
+    ver = f" yt-dlp {st.version} " if st.version else ""
+    put(scr, y0, x0, "╭─", T.border)
+    put(scr, y0, x0 + 2, title, T.accent)
+    gap = W - 3 - cells(title) - cells(ver) - 1
+    put(scr, y0, x0 + 2 + cells(title), "─" * max(0, gap), T.border)
+    put(scr, y0, x0 + W - 2 - cells(ver), ver, T.dim)
+    put(scr, y0, x0 + W - 2, "─╮", T.border)
+
+    cursor = None
+    for n, line in enumerate(lines[:H - 2]):
+        y = y0 + 1 + n
+        put(scr, y, x0, "│", T.border)
+        put(scr, y, x0 + W - 1, "│", T.border)
+        if line["rule"]:
+            put(scr, y, x0 + 3, "─" * inner, T.border)
+        if line["fill"] is not None:
+            put(scr, y, x0 + 2, " " * (inner + 2), line["fill"])
+        rtext = "".join(t for t, _ in line["right"])
+        room = inner - (cells(rtext) + 2 if rtext else 0)
+        x = x0 + 3
+        for text, attr in line["left"]:
+            text = trunc(text, room - (x - x0 - 3))
+            put(scr, y, x, text, attr)
+            x += cells(text)
+        rx = x0 + 3 + inner - cells(rtext)
+        for text, attr in line["right"]:
+            put(scr, y, rx, text, attr)
+            rx += cells(text)
+        if line["cursor"] is not None:
+            cursor = (y, x0 + 3 + line["cursor"])
+
+    yb = y0 + min(len(lines), H - 2) + 1
+    foot = f" {footer} " if footer else ""
+    put(scr, yb, x0, "╰─", T.border)
+    put(scr, yb, x0 + 2, trunc(foot, W - 6), T.dim)
+    put(scr, yb, x0 + 2 + cells(trunc(foot, W - 6)),
+        "─" * max(0, W - 4 - cells(foot)), T.border)
+    put(scr, yb, x0 + W - 2, "─╯", T.border)
+
+    if cursor:
+        curses.curs_set(1)
+        try:
+            scr.move(*cursor)
+        except curses.error:
+            pass
+    else:
+        curses.curs_set(0)
+    scr.refresh()
+    return inner
+
+
+def body_room(scr, st, step, extra):
+    h, _ = scr.getmaxyx()
+    return max(3, h - len(header(st, step)) - 4 - extra)
+
+

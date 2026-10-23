@@ -125,3 +125,42 @@ def L(*segs, right=(), fill=None, cursor=None, rule=False):
     """One line in the card: left segments, right-aligned segments, row fill."""
     return {"left": segs, "right": right, "fill": fill, "cursor": cursor, "rule": rule}
 
+
+# ── keys ────────────────────────────────────────────────────────────────────
+KEYMAP = {curses.KEY_UP: "UP", curses.KEY_DOWN: "DOWN", curses.KEY_LEFT: "LEFT",
+          curses.KEY_RIGHT: "RIGHT", curses.KEY_HOME: "HOME", curses.KEY_END: "END",
+          curses.KEY_BACKSPACE: "BS", curses.KEY_DC: "DEL", curses.KEY_ENTER: "ENTER",
+          curses.KEY_RESIZE: "RESIZE", curses.KEY_PPAGE: "PGUP", curses.KEY_NPAGE: "PGDN"}
+CHARMAP = {"\n": "ENTER", "\r": "ENTER", "\x7f": "BS", "\x08": "BS", "\t": "TAB",
+           "\x15": "KILL", "\x17": "WORD", "\x01": "HOME", "\x05": "END"}
+SEQMAP = {"[A": "UP", "OA": "UP", "[B": "DOWN", "OB": "DOWN", "[C": "RIGHT",
+          "OC": "RIGHT", "[D": "LEFT", "OD": "LEFT", "[H": "HOME", "OH": "HOME",
+          "[F": "END", "OF": "END", "[1~": "HOME", "[4~": "END", "[3~": "DEL",
+          "[5~": "PGUP", "[6~": "PGDN"}
+
+
+def read_key(scr, timeout=-1):
+    """Named key ("UP", "ENTER", …), a single typed character, or None."""
+    scr.timeout(timeout)
+    try:
+        k = scr.get_wch()
+    except curses.error:
+        return None
+    if isinstance(k, int):
+        return KEYMAP.get(k)
+    if k == "\x1b":  # escape sequences terminfo didn't decode
+        scr.nodelay(True)
+        seq = ""
+        while True:
+            try:
+                c = scr.get_wch()
+            except curses.error:
+                break
+            seq += c if isinstance(c, str) else ""
+        scr.timeout(timeout)
+        return "ESC" if not seq else SEQMAP.get(seq)
+    if k in CHARMAP:
+        return CHARMAP[k]
+    return k if k.isprintable() else None
+
+

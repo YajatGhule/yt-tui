@@ -25,8 +25,13 @@ Pick quality and file type with the arrow keys and Enter, then type where to sav
 curl -fsSL https://raw.githubusercontent.com/YajatGhule/yt-tui/main/install.sh | sh
 ```
 
-Or from a clone: `./install.sh`. It installs to `~/.local/bin` (set `PREFIX` to change it)
-and tells you how to get `yt-dlp` and `ffmpeg` if they are missing.
+One command, no questions. It installs `yt-dlp` and `ffmpeg` if they are missing
+(Homebrew, pacman, apt, dnf or zypper), puts yt-tui in `~/.local/bin` and adds that to your PATH.
+On macOS it also adds **yt-tui.app** to `~/Applications`, so you can open it from Launchpad
+or Spotlight.
+
+Or from a clone: `./install.sh`. Set `PREFIX` to install somewhere else.
+To remove it: `curl -fsSL https://raw.githubusercontent.com/YajatGhule/yt-tui/main/install.sh | sh -s -- --uninstall`
 
 ### Windows
 
